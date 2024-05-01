@@ -366,8 +366,11 @@ pressing `<leader> m`. Set it to `nil` to disable it."
                                             :size 10.0
                                             :weight normal
                                             :width normal)
-  "Default font, or prioritized list of fonts. This setting has no effect when
-running Emacs in terminal."
+  "Default font or prioritized list of fonts. This setting has no effect when
+running Emacs in terminal. The font set here will be used for default and
+fixed-pitch faces. The `:size' can be specified as
+a non-negative integer (pixel size), or a floating-point (point size).
+Point size is recommended, because it's device independent. (default 10.0)"
   '(choice (cons string sexp)
            (repeat (cons string sexp)))
   'spacemacs-dotspacemacs-init)
@@ -438,10 +441,22 @@ key sequence. Setting this variable is equivalent to setting
   'spacemacs-dotspacemacs-init)
 
 (spacemacs|defc dotspacemacs-which-key-position 'bottom
-  "Location of the which-key popup buffer. Possible choices are bottom,
-right, and right-then-bottom. The last one will display on the
-right if possible and fallback to bottom if not."
-  '(choice (const right) (const bottom) (const right-then-bottom))
+  "Which-key frame position. Possible values are `right', `bottom' and
+`right-then-bottom'. right-then-bottom tries to display the frame to the
+right; if there is insufficient space it displays it at the bottom.
+It is also possible to use a posframe with the following cons cell
+`(posframe . position)' where position can be one of `center',
+`top-center', `bottom-center', `top-left-corner', `top-right-corner',
+`top-right-corner', `bottom-left-corner' or `bottom-right-corner'"
+  '(choice (const right) (const bottom) (const right-then-bottom)
+           (cons (const posframe)
+                 (choice (const center)
+                         (const top-center)
+                         (const bottom-center)
+                         (const top-left-corner)
+                         (const top-right-corner)
+                         (const bottom-left-corner)
+                         (const bottom-right-corner))))
   'spacemacs-dotspacemacs-init)
 
 (spacemacs|defc dotspacemacs-switch-to-buffer-prefers-purpose nil
@@ -780,15 +795,10 @@ are caught and signaled to user in spacemacs buffer."
   (interactive)
   (dotspacemacs|call-func dotspacemacs/user-env "Calling dotfile user env..."))
 
-(defun dotspacemacs/go-to-function (func)
-  "Open the dotfile and goes to FUNC function."
-  (interactive)
-  (find-function func))
-
 (defun dotspacemacs/go-to-user-env ()
   "Go to the `dotspacemacs/user-env' function."
   (interactive)
-  (dotspacemacs/go-to-function 'dotspacemacs/user-env))
+  (find-function 'dotspacemacs/user-env))
 
 (defun dotspacemacs//check-layers-changed ()
   "Check if the value of `dotspacemacs-configuration-layers'
@@ -1261,5 +1271,33 @@ Return non-nil if all the tests passed."
                            dotspacemacs//test-dotspacemacs/init)
                          :initial-value t)
             (goto-char (point-min))))))))
+
+(define-advice en/disable-command (:around (orig-f &rest args) write-to-dotspacemacs-instead)
+  "Attempt to modify `dotspacemacs/user-config' rather than ~/.emacs.d/init.el."
+  (let ((orig-f-called))
+    (condition-case-unless-debug e
+        (let* ((location (find-function-noselect 'dotspacemacs/user-config 'lisp-only))
+               (buffer (car location))
+               (start (cdr location))
+               (user-init-file (buffer-file-name buffer)))
+          (with-current-buffer buffer
+            (save-excursion
+              (save-restriction
+                ;; Set `user-init-file' and narrow the buffer visiting that
+                ;; file, to trick en/disable-command into writing inside the
+                ;; body of `dotspacemacs/user-config' instead of
+                ;; ~/.emacs.d/init.el.
+                (goto-char start)
+                (forward-sexp)
+                (backward-char)
+                (narrow-to-region start (point))
+                (setq orig-f-called t)
+                (apply orig-f args)))))
+      (error
+       ;; If the error happened before we managed to call the advised function,
+       ;; just allow the original function to run and modify ~/.emacs.d/init.el,
+       ;; which is better than failing completely.
+       (unless orig-f-called
+         (apply orig-f args))))))
 
 (provide 'core-dotspacemacs)
