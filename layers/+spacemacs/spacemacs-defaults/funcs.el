@@ -82,13 +82,13 @@ A COUNT argument matches the indentation to the next COUNT lines."
     python-mode
     yaml-mode)
   "Modes for which auto-indenting is suppressed."
-  :type 'list
+  :type '(repeat symbol)
   :group 'spacemacs)
 
 (defcustom spacemacs-yank-indent-modes '(latex-mode)
   "Modes in which to indent regions that are yanked (or yank-popped).
 Only modes that don't derive from `prog-mode' should be listed here."
-  :type 'list
+  :type '(repeat symbol)
   :group 'spacemacs)
 
 (defcustom spacemacs-yank-indent-threshold 1000
@@ -103,7 +103,7 @@ Only modes that don't derive from `prog-mode' should be listed here."
   "Major modes which `spacemacs/check-large-file' will not be
 automatically applied to."
   :group 'spacemacs
-  :type '(list symbol))
+  :type '(repeat symbol))
 
 (defun spacemacs/custom-newline (pos)
   "Make `RET' in a Custom-mode search box trigger that field's action, rather
@@ -130,6 +130,18 @@ If not in such a search box, fall back on `Custom-newline'."
 (defalias 'spacemacs/insert-file 'insert-file)
 (defalias 'spacemacs/display-buffer-other-frame 'display-buffer-other-frame)
 (defalias 'spacemacs/find-file-and-replace-buffer 'find-alternate-file)
+
+;; By default the emacs leader is M-m, turns out that Helm does this:
+;;    (cl-dolist (k (where-is-internal 'describe-mode global-map))
+;;         (define-key map k 'helm-help))
+;; after doing this:
+;;    (define-key map (kbd \"M-m\") 'helm-toggle-all-marks)
+;; So when Helm is loaded we get the error:
+;;    Key sequence M-m h d m starts with non-prefix key M-m
+;; To prevent this error we just alias `describe-mode' to defeat the Helm hack.
+(defalias 'spacemacs/describe-mode 'describe-mode
+  "To avoid Helm key binding issue for `describe-mode'.
+Refer Spacemacs #16397 for details.")
 
 (defun spacemacs/indent-region-or-buffer ()
   "Indent a region if selected, otherwise the whole buffer."
@@ -558,16 +570,28 @@ FILENAME is deleted using `spacemacs/delete-file' function.."
   (funcall-interactively #'spacemacs/delete-file filename t))
 
 ;; from magnars
-(defun spacemacs/delete-current-buffer-file ()
-  "Removes file connected to current buffer and kills buffer."
-  (interactive)
+(defcustom spacemacs-keep-legacy-current-buffer-delete-bindings t
+  "If nil, \\[spacemacs/delete-current-buffer-file-yes] deletes without confirmation.
+
+This variable exists to preserve the previous behavior of the SPC
+f D key binding, since users may be accustomed to seeing a prompt
+before deleting."
+  :type 'boolean
+  :group 'spacemacs)
+
+(defun spacemacs/delete-current-buffer-file (&optional arg)
+  "Removes file connected to current buffer and kills buffer.
+
+If prefix ARG is non-nil, delete without confirmation."
+  (interactive "P")
   (let ((filename (buffer-file-name))
         (buffer (current-buffer))
         (name (buffer-name)))
     (if (not (and filename (file-exists-p filename)))
         (ido-kill-buffer)
-      (if (yes-or-no-p
-           (format "Are you sure you want to delete this file: '%s'?" name))
+      (if (or arg
+              (yes-or-no-p
+               (format "Are you sure you want to delete this file: '%s'?" name)))
           (progn
             (delete-file filename t)
             (kill-buffer buffer)
@@ -576,6 +600,32 @@ FILENAME is deleted using `spacemacs/delete-file' function.."
               (call-interactively #'projectile-invalidate-cache))
             (message "File deleted: '%s'" filename))
         (message "Canceled: File deletion")))))
+
+(defun spacemacs/delete-current-buffer-file-yes ()
+  "Removes file connected to current buffer and kills buffer, without prompting.
+
+For backwards compatibility, this command actually still prompts
+the user if
+`spacemacs-keep-legacy-current-buffer-delete-bindings' is
+non-nil.  That customization is planned to be removed (and this
+function will never prompt) in the future."
+  (interactive)
+  ;; Warn the user about the upcoming change to the defaults, which is
+  ;; potentially dangerous.
+  (when spacemacs-keep-legacy-current-buffer-delete-bindings
+    (display-warning '(spacemacs delete-current-file-key-bindings-change)
+                     (substitute-command-keys "\
+\\[spacemacs/delete-current-buffer-file-yes] will stop prompting for confirmation in a future version of Spacemacs.
+
+Use \\[spacemacs/delete-current-buffer-file] to delete files if you want to be prompted for confirmation.
+
+Customize `spacemacs-keep-legacy-current-buffer-delete-bindings'
+to nil to make \\[spacemacs/delete-current-buffer-file-yes] stop
+prompting (opting into the future behavior).  Doing so will also
+suppress this warning.")))
+
+  (funcall #'spacemacs/delete-current-buffer-file
+           (not spacemacs-keep-legacy-current-buffer-delete-bindings)))
 
 ;; from magnars
 (defun spacemacs/sudo-edit (&optional arg)
